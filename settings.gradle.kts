@@ -1,3 +1,3 @@
 rootProject.name = "Vortex"
 
-include("vortex-parser")
+include("vortex-parser", "vortex-structurate")
