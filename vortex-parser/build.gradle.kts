@@ -1,5 +1,6 @@
 plugins {
     id("java-library")
+    `maven-publish`
 }
 
 dependencies {
@@ -8,4 +9,18 @@ dependencies {
 
     compileOnly("org.projectlombok:lombok:1.18.42")
     annotationProcessor("org.projectlombok:lombok:1.18.42")
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenParser") {
+            from(components["java"])
+            groupId = "dev.vortex"
+            artifactId = "vortex-parser"
+            version = rootProject.version.toString()
+
+            artifact(tasks["sourcesJar"])
+            artifact(tasks["javadocJar"])
+        }
+    }
 }
