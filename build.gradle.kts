@@ -1,6 +1,7 @@
 plugins {
     java
     `java-library`
+    `maven-publish`
     id("com.gradleup.shadow") version "9.2.2" apply false
 }
 
@@ -25,7 +26,15 @@ subprojects {
         withJavadocJar()
     }
 
-    tasks.test {
-        useJUnitPlatform()
+    publishing {
+        publications {
+            create<MavenPublication>("mavenJava") {
+                from(components["java"])
+
+                groupId = "dev.vortex"
+                artifactId = project.name
+                version = rootProject.version.toString()
+            }
+        }
     }
 }
