@@ -7,7 +7,6 @@ import fr.vortex.structrurate.mapper.PojoMapper;
 import fr.vortex.structrurate.migrations.ConfigMigration;
 import fr.vortex.structrurate.node.ConfigNode;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -15,9 +14,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 @Getter
 public class VortexStructurate<T> {
+
+    private static final Logger log = Logger.getLogger(VortexStructurate.class.getName());
 
     private final Class<T> type;
     private final Path file;
@@ -32,7 +35,6 @@ public class VortexStructurate<T> {
     private final Map<Integer, ConfigMigration> migrations;
 
     private final List<String> headerComments = new ArrayList<>();
-
     private final Object lock = new Object();
 
     VortexStructurate(Builder<T> b) {
@@ -59,15 +61,25 @@ public class VortexStructurate<T> {
             if (preserveComments) headerComments.addAll(rr.headerComments());
 
             ConfigNode rawNode = new ConfigNode(rr.map());
-            int current = nodeVersion(rawNode);
-            int target = codeVersion();
-            if (current < target) {
-                for (int v = current + 1; v <= target; v++) {
+            int currentVersion = nodeVersion(rawNode);
+            int targetVersion = codeVersion();
+
+            if (currentVersion < targetVersion) {
+                log.log(Level.INFO, "Migration de la config de {0} vers {1} pour le fichier {2}", new Object[]{currentVersion, targetVersion, file.getFileName()});
+                for (int v = currentVersion + 1; v <= targetVersion; v++) {
                     ConfigMigration mig = migrations.get(v);
-                    if (mig != null) mig.migrate(rawNode);
+                    if (mig != null) {
+                        try {
+                            mig.migrate(rawNode);
+                            log.log(Level.FINE, "Migration appliquée pour la version {0}", v);
+                        } catch (Exception e) {
+                            log.log(Level.WARNING, "Échec de la migration pour la version " + v + " pour " + file, e);
+                        }
+                    }
                 }
-                rawNode.set("_config_version", target);
             }
+
+            rawNode.set("_config_version", targetVersion);
 
             T defaults = mapper.instantiateDefaults(type);
             ConfigNode defaultNode = mapper.toNode(defaults);
@@ -76,10 +88,7 @@ public class VortexStructurate<T> {
             T obj = mapper.fromNode(type, rawNode);
 
             if (autoUpdate) {
-                ConfigNode outNode = mapper.toNode(obj);
-                if (rawNode.get("_config_version") == null) outNode.set("_config_version", codeVersion());
-                Map<String, Object> outMap = new LinkedHashMap<>(outNode.asMap());
-                io.writeWithHeader(file, outMap, preserveComments ? headerComments : null);
+                saveInternal(obj);
             }
 
             return obj;
@@ -88,10 +97,20 @@ public class VortexStructurate<T> {
 
     public void save(T instance) {
         synchronized (lock) {
-            ConfigNode node = mapper.toNode(instance);
-            if (node.get("_config_version") == null) node.set("_config_version", codeVersion());
-            io.writeWithHeader(file, new LinkedHashMap<>(node.asMap()), preserveComments ? headerComments : null);
+            saveInternal(instance);
         }
+    }
+
+    private void saveInternal(T instance) {
+        ConfigNode node = mapper.toNode(instance);
+
+        if (node.get("_config_version") == null) {
+            node.set("_config_version", codeVersion());
+        }
+
+        Map<String, Object> outMap = new LinkedHashMap<>(node.asMap());
+        List<String> comments = preserveComments ? headerComments : null;
+        io.writeWithHeader(file, outMap, comments);
     }
 
     public void reload() {
@@ -136,7 +155,6 @@ public class VortexStructurate<T> {
         return 1;
     }
 
-    @RequiredArgsConstructor
     public static class Builder<T> {
         private Class<T> type;
         private Path file;
