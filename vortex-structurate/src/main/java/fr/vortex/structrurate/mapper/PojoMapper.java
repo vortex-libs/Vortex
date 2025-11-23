@@ -121,46 +121,47 @@ public class PojoMapper {
 
     @SuppressWarnings("unchecked")
     private Object convertValue(Object raw, Class<?> target, Type genericType) {
-        if (raw == null) return null;
-        if (target.isAssignableFrom(raw.getClass())) return raw;
+        if (raw == null || target.isInstance(raw)) return raw;
 
         if (target == String.class) return raw.toString();
 
-        if (target == int.class || target == Integer.class) return ((Number) raw).intValue();
-        if (target == long.class || target == Long.class) return ((Number) raw).longValue();
-        if (target == double.class || target == Double.class) return ((Number) raw).doubleValue();
-        if (target == float.class || target == Float.class) return ((Number) raw).floatValue();
-        if (target == boolean.class || target == Boolean.class) return raw instanceof Boolean ? raw : Boolean.parseBoolean(raw.toString());
+        if (raw instanceof Number num) {
+            if (target == int.class || target == Integer.class) return num.intValue();
+            if (target == long.class || target == Long.class) return num.longValue();
+            if (target == double.class || target == Double.class) return num.doubleValue();
+            if (target == float.class || target == Float.class) return num.floatValue();
+        }
+
+        if (target == boolean.class || target == Boolean.class) {
+            return raw instanceof Boolean ? raw : Boolean.parseBoolean(raw.toString());
+        }
 
         if (target.isEnum()) {
             String s = raw.toString();
             for (Object c : target.getEnumConstants()) {
                 if (((Enum<?>) c).name().equalsIgnoreCase(s)) return c;
             }
-            return Enum.valueOf((Class<Enum>) target, raw.toString());
+            return Enum.valueOf((Class<Enum>) target, s);
         }
 
-        if (Collection.class.isAssignableFrom(target)) {
+        if (Collection.class.isAssignableFrom(target) && raw instanceof Collection) {
             Class<?> elementType = Object.class;
             if (genericType instanceof ParameterizedType) {
                 Type t = ((ParameterizedType) genericType).getActualTypeArguments()[0];
                 if (t instanceof Class) elementType = (Class<?>) t;
             }
             List<Object> out = new ArrayList<>();
-            if (raw instanceof Collection) {
-                for (Object r : (Collection<?>) raw) {
-                    out.add(convertValue(r, elementType, elementType));
-                }
+            for (Object r : (Collection<?>) raw) {
+                out.add(convertValue(r, elementType, elementType));
             }
             return out;
         }
 
-        if (Map.class.isAssignableFrom(target)) {
-            if (raw instanceof Map) return raw;
+        if (Map.class.isAssignableFrom(target) && raw instanceof Map) {
+            return raw;
         }
 
         if (target == UUID.class) return UUID.fromString(raw.toString());
-
         if (target == Instant.class) return Instant.parse(raw.toString());
         if (target == Duration.class) return Duration.parse(raw.toString());
 
@@ -168,7 +169,6 @@ public class PojoMapper {
             ConfigNode node = new ConfigNode((Map<String, Object>) raw);
             return fromNode(target, node);
         }
-
         return raw;
     }
 
@@ -176,16 +176,19 @@ public class PojoMapper {
     private Object serializeValue(Object val, Class<?> type, Type genericType) {
         if (val == null) return null;
         if (val instanceof Number || val instanceof Boolean || val instanceof String || val instanceof Enum) return val;
-        return switch (val) {
-            case UUID uuid -> val.toString();
-            case Instant instant -> val.toString();
-            case Duration duration -> val.toString();
-            case Collection coll ->
-                    coll.stream().map(o -> serializeValue(o, o.getClass(), o.getClass())).collect(Collectors.toList());
-            case Map map -> val;
-            default ->
-                // nested POJO
-                    toNode(val).asMap();
-        };
+
+        if (val instanceof UUID || val instanceof Instant || val instanceof Duration) return val.toString();
+
+        if (val instanceof Collection coll) {
+            return coll.stream()
+                    .map(o -> serializeValue(o, o.getClass(), o.getClass()))
+                    .collect(Collectors.toList());
+        }
+
+        if (val instanceof Map) {
+            return val;
+        }
+
+        return toNode(val).asMap();
     }
 }
